@@ -50,7 +50,8 @@ pipeline {
       }
     }
 
-    stage('Terraform Apply (manual gate on main)') {
+    stage('Terraform Apply (manual gate)') {
+      // if you want only on main, uncomment:
       // when { branch 'main' }
       steps {
         input message: 'Apply Terraform changes to AWS?'
@@ -85,10 +86,10 @@ pipeline {
         archiveArtifacts artifacts: 'bucket_name.txt, policy_arn.txt, terraform/outputs.txt', fingerprint: true
       }
     }
+  } // <-- close stages
 
   post {
     success { echo 'Terraform from Jenkins: OK.' }
     always  { echo 'Done.' }
   }
-}
-}
+} // <-- end pipeline
