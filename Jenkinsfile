@@ -51,7 +51,7 @@ pipeline {
     }
 
     stage('Terraform Apply (manual gate on main)') {
-      when { branch 'main' }
+      // when { branch 'main' }
       steps {
         input message: 'Apply Terraform changes to AWS?'
         withCredentials([usernamePassword(credentialsId: 'aws-reports-creds',
@@ -75,6 +75,7 @@ pipeline {
     stage('Export Terraform outputs') {
       steps {
         bat """
+          set "PATH=%PATH%;C:\\Windows\\System32;C:\\Windows;C:\\Program Files\\Terraform\\"
           if not exist %REPORTS% mkdir %REPORTS%
           cd %TF_DIR%
           terraform output > outputs.txt
@@ -84,7 +85,6 @@ pipeline {
         archiveArtifacts artifacts: 'bucket_name.txt, policy_arn.txt, terraform/outputs.txt', fingerprint: true
       }
     }
-  }
 
   post {
     success { echo 'Terraform from Jenkins: OK.' }
