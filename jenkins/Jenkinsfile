@@ -1,0 +1,93 @@
+pipeline {
+  agent any
+  options { timestamps(); ansiColor('xterm') }
+
+  environment {
+    AWS_REGION = 'eu-central-1'
+    TF_DIR     = 'terraform'
+    TF_INPUT   = 'false'
+    REPORTS    = 'reports'
+  }
+
+  stages {
+    stage('Checkout') {
+      steps {
+        checkout scm
+        bat 'cd & dir'
+      }
+    }
+
+    stage('Terraform Init') {
+      steps {
+        withCredentials([usernamePassword(credentialsId: 'aws-reports-creds',
+                                          usernameVariable: 'AWS_ACCESS_KEY_ID',
+                                          passwordVariable: 'AWS_SECRET_ACCESS_KEY')]) {
+          bat """
+            set "PATH=%PATH%;C:\\Windows\\System32;C:\\Windows;C:\\Program Files\\Amazon\\AWSCLIV2\\;C:\\Program Files\\Terraform\\"
+            cd %TF_DIR%
+            set AWS_DEFAULT_REGION=%AWS_REGION%
+            terraform -version
+            terraform init -input=%TF_INPUT% -no-color
+          """
+        }
+      }
+    }
+
+    stage('Terraform Plan') {
+      steps {
+        withCredentials([usernamePassword(credentialsId: 'aws-reports-creds',
+                                          usernameVariable: 'AWS_ACCESS_KEY_ID',
+                                          passwordVariable: 'AWS_SECRET_ACCESS_KEY')]) {
+          bat """
+            set "PATH=%PATH%;C:\\Windows\\System32;C:\\Windows;C:\\Program Files\\Amazon\\AWSCLIV2\\;C:\\Program Files\\Terraform\\"
+            cd %TF_DIR%
+            set AWS_DEFAULT_REGION=%AWS_REGION%
+            terraform plan -input=%TF_INPUT% -no-color -out tfplan
+            terraform show -no-color tfplan > tfplan.txt
+          """
+        }
+        archiveArtifacts artifacts: "${env.TF_DIR}/tfplan.txt", fingerprint: true
+      }
+    }
+
+    stage('Terraform Apply (manual gate on main)') {
+      when { branch 'main' }
+      steps {
+        input message: 'Apply Terraform changes to AWS?'
+        withCredentials([usernamePassword(credentialsId: 'aws-reports-creds',
+                                          usernameVariable: 'AWS_ACCESS_KEY_ID',
+                                          passwordVariable: 'AWS_SECRET_ACCESS_KEY')]) {
+          bat """
+            set "PATH=%PATH%;C:\\Windows\\System32;C:\\Windows;C:\\Program Files\\Amazon\\AWSCLIV2\\;C:\\Program Files\\Terraform\\"
+            cd %TF_DIR%
+            set AWS_DEFAULT_REGION=%AWS_REGION%
+            if exist tfplan (
+              terraform apply -input=%TF_INPUT% -no-color -auto-approve tfplan
+            ) else (
+              terraform apply -input=%TF_INPUT% -no-color -auto-approve
+            )
+            terraform output
+          """
+        }
+      }
+    }
+
+    stage('Export Terraform outputs') {
+      steps {
+        bat """
+          if not exist %REPORTS% mkdir %REPORTS%
+          cd %TF_DIR%
+          terraform output > outputs.txt
+          for /f %%i in ('terraform output -raw bucket_name') do @echo %%i > ..\\bucket_name.txt
+          for /f %%i in ('terraform output -raw jenkins_reports_policy_arn') do @echo %%i > ..\\policy_arn.txt
+        """
+        archiveArtifacts artifacts: 'bucket_name.txt, policy_arn.txt, terraform/outputs.txt', fingerprint: true
+      }
+    }
+  }
+
+  post {
+    success { echo 'Terraform from Jenkins: OK.' }
+    always  { echo 'Done.' }
+  }
+}
