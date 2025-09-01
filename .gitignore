@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[codz]
@@ -205,3 +206,59 @@ cython_debug/
 marimo/_static/
 marimo/_lsp/
 __marimo__/
+=======
+# === OS / Editor junk ===
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+.vscode/
+.idea/
+
+# === Python ===
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.egg-info/
+.eggs/
+*.log
+
+# === Docker ===
+*.tar
+*.img
+*.pid
+
+# === Terraform ===
+*.tfstate
+*.tfstate.*
+crash.log
+override.tf
+override.tf.json
+*.tfvars
+*.tfvars.json
+.terraform/
+.terraform.lock.hcl
+
+# === Jenkins ===
+# (if you export jobs or configs locally)
+jenkins_home/
+
+# === Reports ===
+reports/
+*.html
+*.json
+*.sarif
+*.csv
+
+# === Secrets ===
+*.pem
+*.key
+*.crt
+.env
+.env.*
+secrets.json
+
+# === AWS CLI ===
+.aws/
+>>>>>>> 839a15e (gitignore added)
