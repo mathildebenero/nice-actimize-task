@@ -86,6 +86,47 @@ pipeline {
         archiveArtifacts artifacts: 'bucket_name.txt, policy_arn.txt, terraform/outputs.txt', fingerprint: true
       }
     }
+    
+    stage('IaC Security Scan (Trivy config)') {
+      steps {
+        bat """
+          rem Ensure Trivy is on PATH for LocalSystem:
+          set "PATH=%PATH%;C:\\Windows\\System32;C:\\Windows;C:\\Program Files\\Aquasec\\Trivy\\"
+          
+          if not exist %REPORTS% mkdir %REPORTS%
+          trivy --version
+          
+          rem Run Trivy config scan against the terraform/ directory.
+          rem --exit-code 0 so the build doesn't fail on findings (you can tighten later).
+          trivy config terraform --severity HIGH,CRITICAL --format json --output reports\\iac-trivy.json --exit-code 0
+        """
+        archiveArtifacts artifacts: 'reports/iac-trivy.json', fingerprint: true
+      }
+    }
+
+    stage('Upload IaC report to S3') {
+      steps {
+        withCredentials([usernamePassword(credentialsId: 'aws-reports-creds',
+                                          usernameVariable: 'AWS_ACCESS_KEY_ID',
+                                          passwordVariable: 'AWS_SECRET_ACCESS_KEY')]) {
+          bat """
+            rem Ensure AWS CLI is visible:
+            set "PATH=%PATH%;C:\\Windows\\System32;C:\\Windows;C:\\Program Files\\Amazon\\AWSCLIV2\\"
+            set AWS_DEFAULT_REGION=%AWS_REGION%
+            
+            rem Read the bucket name created by Terraform:
+            for /f %%i in (bucket_name.txt) do @set BUCKET=%%i
+            if "%BUCKET%"=="" ( echo ERROR: bucket_name.txt missing or empty & exit /b 1 )
+            
+            rem Upload the IaC report with SSE:
+            aws s3 cp reports\\iac-trivy.json s3://%BUCKET%/reports/%BUILD_NUMBER%/iac/iac-trivy.json --sse AES256
+            
+            rem Optional: list the uploaded prefix for confirmation
+            aws s3 ls s3://%BUCKET%/reports/%BUILD_NUMBER%/iac/
+          """
+        }
+      }
+    }
   } // <-- close stages
 
   post {
