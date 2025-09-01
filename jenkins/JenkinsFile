@@ -96,7 +96,7 @@ pipeline {
 
     stage('Placeholders for security scans') {
       steps {
-        echo 'Next: Trivy IaC scan, Trivy image scan, run app container, ZAP scan, upload reports to S3'
+        echo 'Next: Trivy IaC scan, Trivy image scan, run app container, ZAP scan, upload reports to S3.'
       }
     }
   }
