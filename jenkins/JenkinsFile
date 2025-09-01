@@ -87,7 +87,7 @@ pipeline {
   }
 
   post {
-    success { echo 'Terraform from Jenkins: OK' }
+    success { echo 'Terraform from Jenkins: OK.' }
     always  { echo 'Done.' }
   }
 }
