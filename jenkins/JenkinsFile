@@ -1,26 +1,19 @@
 pipeline {
   agent any
-
-  options {
-    timestamps()
-    ansiColor('xterm')
-  }
+  options { timestamps(); ansiColor('xterm') }
 
   environment {
-    // Adjust if you picked another region
-    AWS_REGION   = 'eu-central-1'
-    // Path to your Terraform code in the repo
-    TF_DIR       = 'terraform'
-    // Avoid interactive prompts
-    TF_INPUT     = 'false'
+    AWS_REGION = 'eu-central-1'
+    TF_DIR     = 'terraform'
+    TF_INPUT   = 'false'
+    REPORTS    = 'reports'
   }
 
   stages {
     stage('Checkout') {
       steps {
         checkout scm
-        // Quick visibility of workspace & files
-        powershell 'pwd; ls'
+        bat 'cd & dir'
       }
     }
 
@@ -29,12 +22,12 @@ pipeline {
         withCredentials([usernamePassword(credentialsId: 'aws-reports-creds',
                                           usernameVariable: 'AWS_ACCESS_KEY_ID',
                                           passwordVariable: 'AWS_SECRET_ACCESS_KEY')]) {
-          powershell """
-            \$ErrorActionPreference = 'Stop'
-            cd ${env.TF_DIR}
-            \$env:AWS_DEFAULT_REGION='${env.AWS_REGION}'
+          bat """
+            set "PATH=%PATH%;C:\\Windows\\System32;C:\\Windows;C:\\Program Files\\Amazon\\AWSCLIV2\\;C:\\Program Files\\Terraform\\"
+            cd %TF_DIR%
+            set AWS_DEFAULT_REGION=%AWS_REGION%
             terraform -version
-            terraform init -input=${env.TF_INPUT} -no-color
+            terraform init -input=%TF_INPUT% -no-color
           """
         }
       }
@@ -45,69 +38,56 @@ pipeline {
         withCredentials([usernamePassword(credentialsId: 'aws-reports-creds',
                                           usernameVariable: 'AWS_ACCESS_KEY_ID',
                                           passwordVariable: 'AWS_SECRET_ACCESS_KEY')]) {
-          powershell """
-            \$ErrorActionPreference = 'Stop'
-            cd ${env.TF_DIR}
-            \$env:AWS_DEFAULT_REGION='${env.AWS_REGION}'
-            terraform plan -input=${env.TF_INPUT} -no-color -out tfplan
+          bat """
+            set "PATH=%PATH%;C:\\Windows\\System32;C:\\Windows;C:\\Program Files\\Amazon\\AWSCLIV2\\;C:\\Program Files\\Terraform\\"
+            cd %TF_DIR%
+            set AWS_DEFAULT_REGION=%AWS_REGION%
+            terraform plan -input=%TF_INPUT% -no-color -out tfplan
             terraform show -no-color tfplan > tfplan.txt
           """
-          archiveArtifacts artifacts: "${env.TF_DIR}/tfplan.txt", fingerprint: true
         }
+        archiveArtifacts artifacts: "${env.TF_DIR}/tfplan.txt", fingerprint: true
       }
     }
 
-    stage('Terraform Apply (main only)') {
-      when {
-        branch 'main'
-      }
+    stage('Terraform Apply (manual gate on main)') {
+      when { branch 'main' }
       steps {
         input message: 'Apply Terraform changes to AWS?'
         withCredentials([usernamePassword(credentialsId: 'aws-reports-creds',
                                           usernameVariable: 'AWS_ACCESS_KEY_ID',
                                           passwordVariable: 'AWS_SECRET_ACCESS_KEY')]) {
-          powershell """
-            \$ErrorActionPreference = 'Stop'
-            cd ${env.TF_DIR}
-            \$env:AWS_DEFAULT_REGION='${env.AWS_REGION}'
-            if (Test-Path tfplan) {
-              terraform apply -input=${env.TF_INPUT} -no-color -auto-approve tfplan
-            } else {
-              terraform apply -input=${env.TF_INPUT} -no-color -auto-approve
-            }
+          bat """
+            set "PATH=%PATH%;C:\\Windows\\System32;C:\\Windows;C:\\Program Files\\Amazon\\AWSCLIV2\\;C:\\Program Files\\Terraform\\"
+            cd %TF_DIR%
+            set AWS_DEFAULT_REGION=%AWS_REGION%
+            if exist tfplan (
+              terraform apply -input=%TF_INPUT% -no-color -auto-approve tfplan
+            ) else (
+              terraform apply -input=%TF_INPUT% -no-color -auto-approve
+            )
             terraform output
           """
         }
       }
     }
 
-    stage('Outputs (for later stages)') {
+    stage('Export Terraform outputs') {
       steps {
-        powershell """
-          \$ErrorActionPreference = 'Stop'
-          cd ${env.TF_DIR}
+        bat """
+          if not exist %REPORTS% mkdir %REPORTS%
+          cd %TF_DIR%
           terraform output > outputs.txt
-          terraform output -raw bucket_name > ..\\bucket_name.txt
-          terraform output -raw jenkins_reports_policy_arn > ..\\policy_arn.txt
+          for /f %%i in ('terraform output -raw bucket_name') do @echo %%i > ..\\bucket_name.txt
+          for /f %%i in ('terraform output -raw jenkins_reports_policy_arn') do @echo %%i > ..\\policy_arn.txt
         """
         archiveArtifacts artifacts: 'bucket_name.txt, policy_arn.txt, terraform/outputs.txt', fingerprint: true
-      }
-    }
-
-    stage('Placeholders for security scans') {
-      steps {
-        echo 'Next: Trivy IaC scan, Trivy image scan, run app container, ZAP scan, upload reports to S3.'
       }
     }
   }
 
   post {
-    success {
-      echo 'Terraform pipeline completed.'
-    }
-    always {
-      // Capture TF logs for debugging
-      powershell "Get-ChildItem -Recurse terraform | Out-String | Write-Output"
-    }
+    success { echo 'Terraform from Jenkins: OK' }
+    always  { echo 'Done.' }
   }
 }
