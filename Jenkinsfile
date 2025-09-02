@@ -239,8 +239,12 @@ pipeline {
           echo %ZAP_EXIT% > %REPORTS%\\zap-exit.txt
           echo ZAP exit code: %ZAP_EXIT%
 
-          rem Fail only on internal error (3). For 0/1/2, continue so we upload reports.
-          if %ZAP_EXIT% GEQ 3 exit /b %ZAP_EXIT%
+          rem Gate: fail only on internal error (>=3). For 0/1/2, succeed so we can upload reports.
+          if %ZAP_EXIT% GEQ 3 (
+            exit /b %ZAP_EXIT%
+          ) else (
+            exit /b 0
+          )
         '''
         archiveArtifacts artifacts: 'reports/zap-baseline.*', fingerprint: true
         archiveArtifacts artifacts: 'reports/zap-exit.txt', fingerprint: true
