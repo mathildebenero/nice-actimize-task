@@ -173,15 +173,6 @@ pipeline {
       }
     }
 
-    // stage('Preflight: free 8081') {
-    //   steps {
-    //     bat """
-    //       powershell -Command " $p=%APP_HOST_PORT%; $c=Get-NetTCPConnection -LocalPort $p -State Listen -ErrorAction SilentlyContinue; if ($c) { Write-Host \\"Port $p busy by PID $($c.OwningProcess). Killing...\\"; Stop-Process -Id $($c.OwningProcess) -Force } else { Write-Host \\"Port $p is free.\\" } "
-    //       for /f %%i in ('docker ps -q --filter "publish=%APP_HOST_PORT%"') do docker rm -f %%i
-    //     """
-    //   }
-    // }
-
     stage('Run App Container') {
       steps {
         bat '''
