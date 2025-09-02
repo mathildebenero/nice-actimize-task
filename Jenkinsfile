@@ -10,6 +10,7 @@ pipeline {
     TF_DIR     = 'terraform'
     TF_INPUT   = 'false'
     REPORTS    = 'reports'
+    APP_HOST_PORT = '8081'
   }
 
   stages {
@@ -171,14 +172,34 @@ pipeline {
       }
     }
 
+    stage('Preflight: free 8081') {
+      steps {
+        bat """
+          powershell -Command " $p=%APP_HOST_PORT%; $c=Get-NetTCPConnection -LocalPort $p -State Listen -ErrorAction SilentlyContinue; if ($c) { Write-Host \\"Port $p busy by PID $($c.OwningProcess). Killing...\\"; Stop-Process -Id $($c.OwningProcess) -Force } else { Write-Host \\"Port $p is free.\\" } "
+          for /f %%i in ('docker ps -q --filter "publish=%APP_HOST_PORT%"') do docker rm -f %%i
+        """
+      }
+    }
+
     stage('Run App Container') {
       steps {
         bat """
-          set "PATH=%PATH%;C:\\Program Files\\Docker\\Docker\\resources\\bin"
-          docker rm -f demo-app 1>nul 2>nul || ver > nul
-          docker run -d --name demo-app -p 8080:8080 %IMAGE_REF%
-          rem Health check (PowerShell Invoke-WebRequest avoids curl dependency)
-          powershell -Command "try { iwr http://localhost:8080/ -UseBasicParsing | Out-Null } catch { exit 1 }"
+          set \"PATH=%PATH%;C:\\Program Files\\Docker\\Docker\\resources\\bin\"
+
+          rem unique container name per build
+          set CONTAINER=demo-app-%BUILD_NUMBER%
+
+          rem ensure clean slate
+          docker rm -f %CONTAINER% 1>nul 2>nul || ver > nul
+
+          rem ALWAYS bind host 8081 -> container 8080
+          docker run -d --name %CONTAINER% -p %APP_HOST_PORT%:8080 %IMAGE_REF%
+
+          rem write the chosen port so ZAP can read it (keeps stages decoupled)
+          echo %APP_HOST_PORT%> app_port.txt
+
+          rem health check
+          powershell -Command \"try { iwr http://localhost:%APP_HOST_PORT%/ -UseBasicParsing | Out-Null } catch { exit 1 }\"
         """
       }
     }
@@ -186,22 +207,24 @@ pipeline {
     stage('ZAP Baseline Scan') {
       steps {
         bat """
-          set "PATH=%PATH%;C:\\Program Files\\Docker\\Docker\\resources\\bin"
+          set \"PATH=%PATH%;C:\\Program Files\\Docker\\Docker\\resources\\bin\"
+
           del /q %REPORTS%\\zap-baseline.html 2>nul
           del /q %REPORTS%\\zap-baseline.json 2>nul
 
           docker run --rm -t ^
-            -v "%cd%\\%REPORTS%:/zap/wrk" ^
+            -v \"%cd%\\%REPORTS%:/zap/wrk\" ^
             owasp/zap2docker-stable zap-baseline.py ^
-              -t http://host.docker.internal:8080 ^
+              -t http://host.docker.internal:%APP_HOST_PORT% ^
               -r zap-baseline.html ^
               -J zap-baseline.json ^
               -m 5 ^
-              -z "-config api.disablekey=true"
+              -z \"-config api.disablekey=true\"
         """
         archiveArtifacts artifacts: 'reports/zap-baseline.*', fingerprint: true
       }
     }
+
 
     stage('Upload ZAP Reports to S3') {
       steps {
@@ -225,10 +248,11 @@ pipeline {
       steps {
         bat """
           set "PATH=%PATH%;C:\\Program Files\\Docker\\Docker\\resources\\bin"
-          docker rm -f demo-app 1>nul 2>nul || ver > nul
+          docker rm -f demo-app-%BUILD_NUMBER% 1>nul 2>nul || ver > nul
         """
       }
     }
+
 
 
 
@@ -236,6 +260,14 @@ pipeline {
 
   post {
     success { echo 'Terraform from Jenkins: OK.' }
-    always  { echo 'Done.' }
+    always  {
+      echo 'Done.'
+      // extra safety: remove container even if earlier stages failed
+      bat """
+        set "PATH=%PATH%;C:\\Program Files\\Docker\\Docker\\resources\\bin"
+        docker rm -f demo-app-%BUILD_NUMBER% 1>nul 2>nul || ver > nul
+      """
+    }
   }
+
 } // <-- end pipeline
