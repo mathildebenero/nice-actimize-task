@@ -183,7 +183,7 @@ pipeline {
 
     stage('Run App Container') {
       steps {
-        bat """
+        bat '''
           set "PATH=%PATH%;C:\\Program Files\\Docker\\Docker\\resources\\bin"
 
           set CONTAINER=demo-app-%BUILD_NUMBER%
@@ -195,7 +195,7 @@ pipeline {
           rem Start container with host 8081 -> container 8080
           docker run -d --name %CONTAINER% -p %PORT%:8080 %IMAGE_REF%
 
-          rem Persist port for later stages (optional but keeps ZAP decoupled)
+          rem Persist port for later stages
           echo %PORT%> app_port.txt
 
           rem === Quick health wait: poll docker health (max ~20s) ===
@@ -209,10 +209,9 @@ pipeline {
             "Write-Host 'Container did not become healthy in time.'; docker logs --tail 100 $env:CONTAINER; exit 1"
 
           echo App healthy on http://localhost:%PORT%/
-        """
+        '''
       }
     }
-
 
     stage('ZAP Baseline Scan') {
       steps {
