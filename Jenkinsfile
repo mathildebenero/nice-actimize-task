@@ -219,12 +219,12 @@ pipeline {
         bat '''
           set "PATH=%PATH%;C:\\Program Files\\Docker\\Docker\\resources\\bin"
 
-          rem Pre-pull to surface proxy/auth errors early
           docker pull %ZAP_IMAGE%
 
           del /q %REPORTS%\\zap-baseline.html 2>nul
           del /q %REPORTS%\\zap-baseline.json 2>nul
 
+          rem Run ZAP baseline
           docker run --rm -t ^
             -v "%cd%\\%REPORTS%:/zap/wrk" ^
             %ZAP_IMAGE% zap-baseline.py ^
@@ -233,11 +233,19 @@ pipeline {
               -J zap-baseline.json ^
               -m 5 ^
               -z "-config api.disablekey=true"
+
+          rem Capture exit code from the previous command
+          set ZAP_EXIT=%ERRORLEVEL%
+          echo %ZAP_EXIT% > %REPORTS%\\zap-exit.txt
+          echo ZAP exit code: %ZAP_EXIT%
+
+          rem Fail only on internal error (3). For 0/1/2, continue so we upload reports.
+          if %ZAP_EXIT% GEQ 3 exit /b %ZAP_EXIT%
         '''
         archiveArtifacts artifacts: 'reports/zap-baseline.*', fingerprint: true
+        archiveArtifacts artifacts: 'reports/zap-exit.txt', fingerprint: true
       }
     }
-
 
 
     stage('Upload ZAP Reports to S3') {
