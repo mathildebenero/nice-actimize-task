@@ -11,6 +11,7 @@ pipeline {
     TF_INPUT   = 'false'
     REPORTS    = 'reports'
     APP_HOST_PORT = '8081'
+    ZAP_IMAGE = 'ghcr.io/zaproxy/zaproxy:stable'
   }
 
   stages {
@@ -215,24 +216,28 @@ pipeline {
 
     stage('ZAP Baseline Scan') {
       steps {
-        bat """
-          set \"PATH=%PATH%;C:\\Program Files\\Docker\\Docker\\resources\\bin\"
+        bat '''
+          set "PATH=%PATH%;C:\\Program Files\\Docker\\Docker\\resources\\bin"
+
+          rem Pre-pull to surface proxy/auth errors early
+          docker pull %ZAP_IMAGE%
 
           del /q %REPORTS%\\zap-baseline.html 2>nul
           del /q %REPORTS%\\zap-baseline.json 2>nul
 
           docker run --rm -t ^
-            -v \"%cd%\\%REPORTS%:/zap/wrk\" ^
-            owasp/zap2docker-stable zap-baseline.py ^
+            -v "%cd%\\%REPORTS%:/zap/wrk" ^
+            %ZAP_IMAGE% zap-baseline.py ^
               -t http://host.docker.internal:%APP_HOST_PORT% ^
               -r zap-baseline.html ^
               -J zap-baseline.json ^
               -m 5 ^
-              -z \"-config api.disablekey=true\"
-        """
+              -z "-config api.disablekey=true"
+        '''
         archiveArtifacts artifacts: 'reports/zap-baseline.*', fingerprint: true
       }
     }
+
 
 
     stage('Upload ZAP Reports to S3') {
