@@ -1,6 +1,10 @@
 from flask import Flask, request
 app = Flask(__name__)
 
+@app.route("/health")
+def health():
+    return "ok", 200
+
 @app.route("/")
 def index():
     return "<h1>Demo App</h1><p>Go to /greet?name=YourName</p>"

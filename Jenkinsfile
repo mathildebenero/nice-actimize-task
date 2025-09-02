@@ -184,25 +184,35 @@ pipeline {
     stage('Run App Container') {
       steps {
         bat """
-          set \"PATH=%PATH%;C:\\Program Files\\Docker\\Docker\\resources\\bin\"
+          set "PATH=%PATH%;C:\\Program Files\\Docker\\Docker\\resources\\bin"
 
-          rem unique container name per build
           set CONTAINER=demo-app-%BUILD_NUMBER%
+          set PORT=%APP_HOST_PORT%
 
-          rem ensure clean slate
+          rem Clean slate
           docker rm -f %CONTAINER% 1>nul 2>nul || ver > nul
 
-          rem ALWAYS bind host 8081 -> container 8080
-          docker run -d --name %CONTAINER% -p %APP_HOST_PORT%:8080 %IMAGE_REF%
+          rem Start container with host 8081 -> container 8080
+          docker run -d --name %CONTAINER% -p %PORT%:8080 %IMAGE_REF%
 
-          rem write the chosen port so ZAP can read it (keeps stages decoupled)
-          echo %APP_HOST_PORT%> app_port.txt
+          rem Persist port for later stages (optional but keeps ZAP decoupled)
+          echo %PORT%> app_port.txt
 
-          rem health check
-          powershell -Command \"try { iwr http://localhost:%APP_HOST_PORT%/ -UseBasicParsing | Out-Null } catch { exit 1 }\"
+          rem === Quick health wait: poll docker health (max ~20s) ===
+          powershell -NoProfile -Command ^
+            "$deadline=(Get-Date).AddSeconds(20);" ^
+            "while((Get-Date) -lt $deadline){" ^
+            "  $s = docker inspect -f '{{.State.Health.Status}}' $env:CONTAINER 2>$null;" ^
+            "  if($s -eq 'healthy'){ exit 0 }" ^
+            "  Start-Sleep -Milliseconds 750" ^
+            "};" ^
+            "Write-Host 'Container did not become healthy in time.'; docker logs --tail 100 $env:CONTAINER; exit 1"
+
+          echo App healthy on http://localhost:%PORT%/
         """
       }
     }
+
 
     stage('ZAP Baseline Scan') {
       steps {
