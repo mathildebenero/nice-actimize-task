@@ -10,7 +10,8 @@ pipeline {
     TF_DIR     = 'terraform'
     TF_INPUT   = 'false'
     REPORTS    = 'reports'
-    APP_HOST_PORT = '8081'
+    APP_HOST_PORT_INSECURE = '8081'
+    APP_HOST_PORT_SECURE   = '8082'
     ZAP_IMAGE = 'ghcr.io/zaproxy/zaproxy:stable'
   }
 
@@ -133,30 +134,32 @@ pipeline {
       }
     }
 
-    stage('Build Docker image') {
+    // insecure app
+
+    stage('Build Docker image (insecure)') {
       steps {
         bat """
           set "PATH=%PATH%;C:\\Program Files\\Docker\\Docker\\resources\\bin"
           if not exist %REPORTS% mkdir %REPORTS%
           docker version
-          docker build -t %IMAGE_REF% .
+          docker build -t %IMAGE_NAME%:insecure-%IMAGE_TAG% -f Dockerfile.insecure .
         """
       }
     }
 
-    stage('Trivy Image Scan') {
+    stage('Trivy Image Scan (insecure)') {
       steps {
         bat """
           set "PATH=%PATH%;C:\\Windows\\System32;C:\\Windows;C:\\Program Files\\Aquasec\\Trivy\\"
           if not exist %REPORTS% mkdir %REPORTS%
           trivy --version
-          trivy image --ignore-unfixed --severity HIGH,CRITICAL --format json -o %REPORTS%\\image-trivy.json %IMAGE_REF% --exit-code 0
+          trivy image --ignore-unfixed --severity HIGH,CRITICAL --format json -o %REPORTS%\\image-trivy-insecure.json %IMAGE_NAME%:insecure-%IMAGE_TAG% --exit-code 0
         """
-        archiveArtifacts artifacts: 'reports/image-trivy.json', fingerprint: true
+        archiveArtifacts artifacts: 'reports/image-trivy-insecure.json', fingerprint: true
       }
     }
 
-    stage('Upload Trivy Image Report to S3') {
+    stage('Upload Trivy Image Report to S3 (insecure)') {
       steps {
         withCredentials([usernamePassword(credentialsId: 'aws-reports-creds',
                                           usernameVariable: 'AWS_ACCESS_KEY_ID',
@@ -166,26 +169,26 @@ pipeline {
             set AWS_DEFAULT_REGION=%AWS_REGION%
             for /f %%i in (bucket_name.txt) do @set BUCKET=%%i
             if "%BUCKET%"=="" ( echo ERROR: bucket_name.txt missing or empty & exit /b 1 )
-            aws s3 cp %REPORTS%\\image-trivy.json s3://%BUCKET%/reports/%BUILD_NUMBER%/image/image-trivy.json --sse AES256
-            aws s3 ls s3://%BUCKET%/reports/%BUILD_NUMBER%/image/
+            aws s3 cp %REPORTS%\\image-trivy-insecure.json s3://%BUCKET%/reports/%BUILD_NUMBER%/image/image-trivy-insecure.json --sse AES256
+            aws s3 ls s3://%BUCKET%/reports/%BUILD_NUMBER%/image/insecure/
           """
         }
       }
     }
 
-    stage('Run App Container') {
+    stage('Run App Container (insecure)') {
       steps {
         bat '''
           set "PATH=%PATH%;C:\\Program Files\\Docker\\Docker\\resources\\bin"
 
-          set CONTAINER=demo-app-%BUILD_NUMBER%
-          set PORT=%APP_HOST_PORT%
+          set CONTAINER=demo-app-insecure-%BUILD_NUMBER%
+          set PORT=%APP_HOST_PORT_INSECURE%
 
           rem Clean slate
           docker rm -f %CONTAINER% 1>nul 2>nul || ver > nul
 
           rem Start container with host 8081 -> container 8080
-          docker run -d --name %CONTAINER% -p %PORT%:8080 %IMAGE_REF%
+          docker run -d --name %CONTAINER% -p %PORT%:8080 %IMAGE_NAME%:insecure-%IMAGE_TAG%
 
           rem Persist port for later stages
           echo %PORT%> app_port.txt
@@ -205,29 +208,29 @@ pipeline {
       }
     }
 
-    stage('ZAP Baseline Scan') {
+    stage('ZAP Baseline Scan (insecure)') {
       steps {
         bat '''
           set "PATH=%PATH%;C:\\Program Files\\Docker\\Docker\\resources\\bin"
 
           docker pull %ZAP_IMAGE%
 
-          del /q %REPORTS%\\zap-baseline.html 2>nul
-          del /q %REPORTS%\\zap-baseline.json 2>nul
+          del /q %REPORTS%\\zap-baseline-insecure.html 2>nul
+          del /q %REPORTS%\\zap-baseline-insecure.json 2>nul
 
           rem Run ZAP baseline
           docker run --rm -t ^
             -v "%cd%\\%REPORTS%:/zap/wrk" ^
             %ZAP_IMAGE% zap-baseline.py ^
-              -t http://host.docker.internal:%APP_HOST_PORT% ^
-              -r zap-baseline.html ^
-              -J zap-baseline.json ^
+              -t http://host.docker.internal:%APP_HOST_PORT_INSECURE% ^
+              -r zap-baseline-insecure.html ^
+              -J zap-baseline-insecure.json ^
               -m 5 ^
               -z "-config api.disablekey=true"
 
           rem Capture exit code from the previous command
           set ZAP_EXIT=%ERRORLEVEL%
-          echo %ZAP_EXIT% > %REPORTS%\\zap-exit.txt
+          echo %ZAP_EXIT% > %REPORTS%\\zap-exit-insecure.txt
           echo ZAP exit code: %ZAP_EXIT%
 
           rem Gate: fail only on internal error (>=3). For 0/1/2, succeed so we can upload reports.
@@ -237,13 +240,13 @@ pipeline {
             exit /b 0
           )
         '''
-        archiveArtifacts artifacts: 'reports/zap-baseline.*', fingerprint: true
-        archiveArtifacts artifacts: 'reports/zap-exit.txt', fingerprint: true
+        archiveArtifacts artifacts: 'reports/zap-baseline-insecure.*', fingerprint: true
+        archiveArtifacts artifacts: 'reports/zap-exit-insecure.txt', fingerprint: true
       }
     }
 
 
-    stage('Upload ZAP Reports to S3') {
+    stage('Upload ZAP Reports to S3 (insecure)') {
       steps {
         withCredentials([usernamePassword(credentialsId: 'aws-reports-creds',
                                           usernameVariable: 'AWS_ACCESS_KEY_ID',
@@ -253,24 +256,163 @@ pipeline {
             set AWS_DEFAULT_REGION=%AWS_REGION%
             for /f %%i in (bucket_name.txt) do @set BUCKET=%%i
             if "%BUCKET%"=="" ( echo ERROR: bucket_name.txt missing or empty & exit /b 1 )
-            aws s3 cp %REPORTS%\\zap-baseline.html s3://%BUCKET%/reports/%BUILD_NUMBER%/zap/zap-baseline.html --sse AES256
-            aws s3 cp %REPORTS%\\zap-baseline.json s3://%BUCKET%/reports/%BUILD_NUMBER%/zap/zap-baseline.json --sse AES256
-            aws s3 ls s3://%BUCKET%/reports/%BUILD_NUMBER%/zap/
+            aws s3 cp %REPORTS%\\zap-baseline-insecure.html s3://%BUCKET%/reports/%BUILD_NUMBER%/zap/insecure/zap-baseline-insecure.html --sse AES256
+            aws s3 cp %REPORTS%\\zap-baseline-insecure.json s3://%BUCKET%/reports/%BUILD_NUMBER%/zap/insecure/zap-baseline-insecure.json --sse AES256
+            aws s3 ls s3://%BUCKET%/reports/%BUILD_NUMBER%/zap/insecure/
           """
         }
       }
     }
 
-    stage('Cleanup App Container') {
+    stage('Cleanup App Container (insecure)') {
       steps {
         bat """
           set "PATH=%PATH%;C:\\Program Files\\Docker\\Docker\\resources\\bin"
-          docker rm -f demo-app-%BUILD_NUMBER% 1>nul 2>nul || ver > nul
+          docker rm -f demo-app-insecure-%BUILD_NUMBER% 1>nul 2>nul || ver > nul
         """
       }
     }
 
 
+    // secure app
+
+    
+    stage('Build Docker image (secure)') {
+      steps {
+        bat """
+          set "PATH=%PATH%;C:\\Program Files\\Docker\\Docker\\resources\\bin"
+          if not exist %REPORTS% mkdir %REPORTS%
+          docker version
+          docker build -t %IMAGE_NAME%:secure-%IMAGE_TAG% -f Dockerfile.secure .
+        """
+      }
+    }
+
+    stage('Trivy Image Scan (secure)') {
+      steps {
+        bat """
+          set "PATH=%PATH%;C:\\Windows\\System32;C:\\Windows;C:\\Program Files\\Aquasec\\Trivy\\"
+          if not exist %REPORTS% mkdir %REPORTS%
+          trivy --version
+          trivy image --ignore-unfixed --severity HIGH,CRITICAL --format json -o %REPORTS%\\image-trivy-secure.json %IMAGE_NAME%:secure-%IMAGE_TAG% --exit-code 0
+        """
+        archiveArtifacts artifacts: 'reports/image-trivy-secure.json', fingerprint: true
+      }
+    }
+
+    stage('Upload Trivy Image Report to S3 (secure)') {
+      steps {
+        withCredentials([usernamePassword(credentialsId: 'aws-reports-creds',
+                                          usernameVariable: 'AWS_ACCESS_KEY_ID',
+                                          passwordVariable: 'AWS_SECRET_ACCESS_KEY')]) {
+          bat """
+            set "PATH=%PATH%;C:\\Windows\\System32;C:\\Windows;C:\\Program Files\\Amazon\\AWSCLIV2\\"
+            set AWS_DEFAULT_REGION=%AWS_REGION%
+            for /f %%i in (bucket_name.txt) do @set BUCKET=%%i
+            if "%BUCKET%"=="" ( echo ERROR: bucket_name.txt missing or empty & exit /b 1 )
+            aws s3 cp %REPORTS%\\image-trivy-secure.json s3://%BUCKET%/reports/%BUILD_NUMBER%/image/image-trivy-secure.json --sse AES256
+            aws s3 ls s3://%BUCKET%/reports/%BUILD_NUMBER%/image/secure/
+          """
+        }
+      }
+    }
+
+    stage('Run App Container (secure)') {
+      steps {
+        bat '''
+          set "PATH=%PATH%;C:\\Program Files\\Docker\\Docker\\resources\\bin"
+
+          set CONTAINER=demo-app-secure-%BUILD_NUMBER%
+          set PORT=%APP_HOST_PORT_secure%
+
+          rem Clean slate
+          docker rm -f %CONTAINER% 1>nul 2>nul || ver > nul
+
+          rem Start container with host 8081 -> container 8080
+          docker run -d --name %CONTAINER% -p %PORT%:8080 %IMAGE_NAME%:secure-%IMAGE_TAG%
+
+          rem Persist port for later stages
+          echo %PORT%> app_port.txt
+
+          rem === Quick health wait: poll docker health (max ~20s) ===
+          powershell -NoProfile -Command ^
+            "$deadline=(Get-Date).AddSeconds(20);" ^
+            "while((Get-Date) -lt $deadline){" ^
+            "  $s = docker inspect -f '{{.State.Health.Status}}' $env:CONTAINER 2>$null;" ^
+            "  if($s -eq 'healthy'){ exit 0 }" ^
+            "  Start-Sleep -Milliseconds 750" ^
+            "};" ^
+            "Write-Host 'Container did not become healthy in time.'; docker logs --tail 100 $env:CONTAINER; exit 1"
+
+          echo App healthy on http://localhost:%PORT%/
+        '''
+      }
+    }
+
+    stage('ZAP Baseline Scan (secure)') {
+      steps {
+        bat '''
+          set "PATH=%PATH%;C:\\Program Files\\Docker\\Docker\\resources\\bin"
+
+          docker pull %ZAP_IMAGE%
+
+          del /q %REPORTS%\\zap-baseline-secure.html 2>nul
+          del /q %REPORTS%\\zap-baseline-secure.json 2>nul
+
+          rem Run ZAP baseline
+          docker run --rm -t ^
+            -v "%cd%\\%REPORTS%:/zap/wrk" ^
+            %ZAP_IMAGE% zap-baseline.py ^
+              -t http://host.docker.internal:%APP_HOST_PORT_secure% ^
+              -r zap-baseline-secure.html ^
+              -J zap-baseline-secure.json ^
+              -m 5 ^
+              -z "-config api.disablekey=true"
+
+          rem Capture exit code from the previous command
+          set ZAP_EXIT=%ERRORLEVEL%
+          echo %ZAP_EXIT% > %REPORTS%\\zap-exit-secure.txt
+          echo ZAP exit code: %ZAP_EXIT%
+
+          rem Gate: fail only on internal error (>=3). For 0/1/2, succeed so we can upload reports.
+          if %ZAP_EXIT% GEQ 3 (
+            exit /b %ZAP_EXIT%
+          ) else (
+            exit /b 0
+          )
+        '''
+        archiveArtifacts artifacts: 'reports/zap-baseline-secure.*', fingerprint: true
+        archiveArtifacts artifacts: 'reports/zap-exit-secure.txt', fingerprint: true
+      }
+    }
+
+
+    stage('Upload ZAP Reports to S3 (secure)') {
+      steps {
+        withCredentials([usernamePassword(credentialsId: 'aws-reports-creds',
+                                          usernameVariable: 'AWS_ACCESS_KEY_ID',
+                                          passwordVariable: 'AWS_SECRET_ACCESS_KEY')]) {
+          bat """
+            set "PATH=%PATH%;C:\\Windows\\System32;C:\\Windows;C:\\Program Files\\Amazon\\AWSCLIV2\\"
+            set AWS_DEFAULT_REGION=%AWS_REGION%
+            for /f %%i in (bucket_name.txt) do @set BUCKET=%%i
+            if "%BUCKET%"=="" ( echo ERROR: bucket_name.txt missing or empty & exit /b 1 )
+            aws s3 cp %REPORTS%\\zap-baseline-secure.html s3://%BUCKET%/reports/%BUILD_NUMBER%/zap/secure/zap-baseline-secure.html --sse AES256
+            aws s3 cp %REPORTS%\\zap-baseline-secure.json s3://%BUCKET%/reports/%BUILD_NUMBER%/zap/secure/zap-baseline-secure.json --sse AES256
+            aws s3 ls s3://%BUCKET%/reports/%BUILD_NUMBER%/zap/secure/
+          """
+        }
+      }
+    }
+
+    stage('Cleanup App Container (secure)') {
+      steps {
+        bat """
+          set "PATH=%PATH%;C:\\Program Files\\Docker\\Docker\\resources\\bin"
+          docker rm -f demo-app-secure-%BUILD_NUMBER% 1>nul 2>nul || ver > nul
+        """
+      }
+    }
 
 
   } // <-- close stages

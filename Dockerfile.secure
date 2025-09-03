@@ -1,0 +1,34 @@
+FROM python:3.12-slim-bookworm
+
+# Make Python/pip quieter & safer by default
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PIP_NO_CACHE_DIR=1 \
+    PIP_DISABLE_PIP_VERSION_CHECK=1
+
+# (Optional) pull latest security patches for the base OS packages
+RUN apt-get update \
+ && apt-get upgrade -y --no-install-recommends \
+ && rm -rf /var/lib/apt/lists/*
+
+# Create non-root runtime user
+RUN useradd --create-home --shell /usr/sbin/nologin appuser
+
+WORKDIR /app
+
+# Install only Python deps
+COPY app/requirements.txt /app/
+RUN python -m pip install --upgrade pip \
+ && pip install --no-cache-dir -r requirements.txt
+
+# Copy the SECURE app code and make it owned by the runtime user
+# If your secure entrypoint is app_secure.py, map it to app.py:
+COPY --chown=appuser:appuser app/app_secure.py /app/app.py
+
+USER appuser
+
+EXPOSE 8080
+HEALTHCHECK --interval=3s --timeout=2s --start-period=1s --retries=10 \
+  CMD python -c "import urllib.request,sys; sys.exit(0) if urllib.request.urlopen('http://127.0.0.1:8080/health', timeout=1).getcode()<500 else sys.exit(1)"
+
+CMD ["python", "app.py"]
