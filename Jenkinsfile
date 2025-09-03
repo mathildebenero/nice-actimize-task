@@ -128,7 +128,7 @@ pipeline {
             aws s3 cp reports\\iac-trivy.json s3://%BUCKET%/reports/%BUILD_NUMBER%/iac/iac-trivy.json --sse AES256
             
             rem Optional: list the uploaded prefix for confirmation
-            aws s3 ls s3://%BUCKET%/reports/%BUILD_NUMBER%/iac/
+            aws s3 ls s3://%BUCKET%/reports/%BUILD_NUMBER%/iac/ || ver > nul
           """
         }
       }
@@ -169,8 +169,8 @@ pipeline {
             set AWS_DEFAULT_REGION=%AWS_REGION%
             for /f %%i in (bucket_name.txt) do @set BUCKET=%%i
             if "%BUCKET%"=="" ( echo ERROR: bucket_name.txt missing or empty & exit /b 1 )
-            aws s3 cp %REPORTS%\\image-trivy-insecure.json s3://%BUCKET%/reports/%BUILD_NUMBER%/image/image-trivy-insecure.json --sse AES256
-            aws s3 ls s3://%BUCKET%/reports/%BUILD_NUMBER%/image/insecure/
+            aws s3 cp %REPORTS%\\image-trivy-insecure.json s3://%BUCKET%/reports/%BUILD_NUMBER%/image/insecure/image-trivy-insecure.json --sse AES256
+            aws s3 ls s3://%BUCKET%/reports/%BUILD_NUMBER%/image/insecure/ || ver > nul
           """
         }
       }
@@ -258,7 +258,7 @@ pipeline {
             if "%BUCKET%"=="" ( echo ERROR: bucket_name.txt missing or empty & exit /b 1 )
             aws s3 cp %REPORTS%\\zap-baseline-insecure.html s3://%BUCKET%/reports/%BUILD_NUMBER%/zap/insecure/zap-baseline-insecure.html --sse AES256
             aws s3 cp %REPORTS%\\zap-baseline-insecure.json s3://%BUCKET%/reports/%BUILD_NUMBER%/zap/insecure/zap-baseline-insecure.json --sse AES256
-            aws s3 ls s3://%BUCKET%/reports/%BUILD_NUMBER%/zap/insecure/
+            aws s3 ls s3://%BUCKET%/reports/%BUILD_NUMBER%/zap/insecure/ || ver > nul
           """
         }
       }
@@ -310,8 +310,8 @@ pipeline {
             set AWS_DEFAULT_REGION=%AWS_REGION%
             for /f %%i in (bucket_name.txt) do @set BUCKET=%%i
             if "%BUCKET%"=="" ( echo ERROR: bucket_name.txt missing or empty & exit /b 1 )
-            aws s3 cp %REPORTS%\\image-trivy-secure.json s3://%BUCKET%/reports/%BUILD_NUMBER%/image/image-trivy-secure.json --sse AES256
-            aws s3 ls s3://%BUCKET%/reports/%BUILD_NUMBER%/image/secure/
+            aws s3 cp %REPORTS%\\image-trivy-secure.json s3://%BUCKET%/reports/%BUILD_NUMBER%/image/secure/image-trivy-secure.json --sse AES256
+            aws s3 ls s3://%BUCKET%/reports/%BUILD_NUMBER%/image/secure/ || ver > nul
           """
         }
       }
@@ -323,7 +323,7 @@ pipeline {
           set "PATH=%PATH%;C:\\Program Files\\Docker\\Docker\\resources\\bin"
 
           set CONTAINER=demo-app-secure-%BUILD_NUMBER%
-          set PORT=%APP_HOST_PORT_secure%
+          set PORT=%APP_HOST_PORT_SECURE%
 
           rem Clean slate
           docker rm -f %CONTAINER% 1>nul 2>nul || ver > nul
@@ -363,7 +363,7 @@ pipeline {
           docker run --rm -t ^
             -v "%cd%\\%REPORTS%:/zap/wrk" ^
             %ZAP_IMAGE% zap-baseline.py ^
-              -t http://host.docker.internal:%APP_HOST_PORT_secure% ^
+              -t http://host.docker.internal:%APP_HOST_PORT_SECURE% ^
               -r zap-baseline-secure.html ^
               -J zap-baseline-secure.json ^
               -m 5 ^
@@ -399,7 +399,7 @@ pipeline {
             if "%BUCKET%"=="" ( echo ERROR: bucket_name.txt missing or empty & exit /b 1 )
             aws s3 cp %REPORTS%\\zap-baseline-secure.html s3://%BUCKET%/reports/%BUILD_NUMBER%/zap/secure/zap-baseline-secure.html --sse AES256
             aws s3 cp %REPORTS%\\zap-baseline-secure.json s3://%BUCKET%/reports/%BUILD_NUMBER%/zap/secure/zap-baseline-secure.json --sse AES256
-            aws s3 ls s3://%BUCKET%/reports/%BUILD_NUMBER%/zap/secure/
+            aws s3 ls s3://%BUCKET%/reports/%BUILD_NUMBER%/zap/secure/ || ver > nul
           """
         }
       }
@@ -409,8 +409,8 @@ pipeline {
       steps {
         bat """
           set "PATH=%PATH%;C:\\Program Files\\Docker\\Docker\\resources\\bin"
-          docker rm -f demo-app-secure-%BUILD_NUMBER% 1>nul 2>nul || ver > nul
-        """
+          docker rm -f demo-app-secure-%BUILD_NUMBER%   1>nul 2>nul || ver > nul
+              """
       }
     }
 
@@ -424,7 +424,9 @@ pipeline {
       // extra safety: remove container even if earlier stages failed
       bat """
         set "PATH=%PATH%;C:\\Program Files\\Docker\\Docker\\resources\\bin"
-        docker rm -f demo-app-%BUILD_NUMBER% 1>nul 2>nul || ver > nul
+        docker rm -f demo-app-insecure-%BUILD_NUMBER% 1>nul 2>nul || ver > nul
+        docker rm -f demo-app-secure-%BUILD_NUMBER%   1>nul 2>nul || ver > nul
+
       """
     }
   }

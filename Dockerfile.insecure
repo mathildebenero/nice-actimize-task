@@ -2,7 +2,7 @@ FROM python:3.11-slim
 WORKDIR /app
 COPY app/requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
-COPY app/ .
+COPY app/app_insecure.py /app/app.py
 EXPOSE 8080
 # Container-level readiness probe (hits the internal port 8080)
 HEALTHCHECK --interval=3s --timeout=2s --start-period=1s --retries=10 \
