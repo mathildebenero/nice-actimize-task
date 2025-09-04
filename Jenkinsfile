@@ -13,6 +13,7 @@ pipeline {
     APP_HOST_PORT_INSECURE = '8081'
     APP_HOST_PORT_SECURE   = '8082'
     ZAP_IMAGE = 'ghcr.io/zaproxy/zaproxy:stable'
+    EDGE_IMAGE = 'nginx:stable-alpine'
   }
 
   stages {
@@ -316,6 +317,18 @@ pipeline {
         }
       }
     }
+
+    // pulling nginx image from docker
+
+    stage('Pull NGINX image (edge)') {
+      steps {
+        bat """
+          set "PATH=%PATH%;C:\\Program Files\\Docker\\Docker\\resources\\bin"
+          docker pull %EDGE_IMAGE%
+        """
+      }
+    }
+
 
     stage('Run App Container (secure)') {
       steps {
