@@ -389,7 +389,7 @@ pipeline {
 
     stage('Run Edge (secure)') {
       steps {
-        bat """
+        bat '''
           set "PATH=%PATH%;C:\\Program Files\\Docker\\Docker\\resources\\bin"
           if "%EDGE_IMAGE%"=="" set EDGE_IMAGE=nginx:stable-alpine
 
@@ -414,7 +414,7 @@ pipeline {
             "  Start-Sleep -Milliseconds 500" ^
             "};" ^
             "Write-Host 'Edge did not become healthy in time.'; exit 1"
-        """
+        '''
       }
     }
 
