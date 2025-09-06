@@ -318,18 +318,6 @@ pipeline {
       }
     }
 
-    // pulling nginx image from docker
-
-    stage('Pull NGINX image (edge)') {
-      steps {
-        bat """
-          set "PATH=%PATH%;C:\\Program Files\\Docker\\Docker\\resources\\bin"
-          docker pull %EDGE_IMAGE%
-        """
-      }
-    }
-
-
     stage('Run App Container (secure)') {
       steps {
         bat '''
@@ -362,45 +350,133 @@ pipeline {
       }
     }
 
-    stage('ZAP Baseline Scan (secure)') {
+    // stage('ZAP Baseline Scan (secure)') {
+    //   steps {
+    //     bat '''
+    //       set "PATH=%PATH%;C:\\Program Files\\Docker\\Docker\\resources\\bin"
+
+    //       docker pull %ZAP_IMAGE%
+
+    //       del /q %REPORTS%\\zap-baseline-secure.html 2>nul
+    //       del /q %REPORTS%\\zap-baseline-secure.json 2>nul
+
+    //       rem Run ZAP baseline
+    //       docker run --rm -t ^
+    //         -v "%cd%\\%REPORTS%:/zap/wrk" ^
+    //         %ZAP_IMAGE% zap-baseline.py ^
+    //           -t http://host.docker.internal:%APP_HOST_PORT_SECURE% ^
+    //           -r zap-baseline-secure.html ^
+    //           -J zap-baseline-secure.json ^
+    //           -m 5 ^
+    //           -z "-config api.disablekey=true"
+
+    //       rem Capture exit code from the previous command
+    //       set ZAP_EXIT=%ERRORLEVEL%
+    //       echo %ZAP_EXIT% > %REPORTS%\\zap-exit-secure.txt
+    //       echo ZAP exit code: %ZAP_EXIT%
+
+    //       rem Gate: fail only on internal error (>=3). For 0/1/2, succeed so we can upload reports.
+    //       if %ZAP_EXIT% GEQ 3 (
+    //         exit /b %ZAP_EXIT%
+    //       ) else (
+    //         exit /b 0
+    //       )
+    //     '''
+    //     archiveArtifacts artifacts: 'reports/zap-baseline-secure.*', fingerprint: true
+    //     archiveArtifacts artifacts: 'reports/zap-exit-secure.txt', fingerprint: true
+    //   }
+    // }
+
+    stage('Run Edge (secure)') {
+      steps {
+        bat """
+          set "PATH=%PATH%;C:\\Program Files\\Docker\\Docker\\resources\\bin"
+          if "%EDGE_IMAGE%"=="" set EDGE_IMAGE=nginx:stable-alpine
+
+          rem Clean slate
+          docker rm -f edge-secure-%BUILD_NUMBER% 1>nul 2>nul || ver > nul
+
+          rem Ensure image present (cheap if already pulled)
+          docker pull %EDGE_IMAGE%
+
+          rem Start NGINX edge on host 8092, mounting our nginx.conf
+          docker run -d --name edge-secure-%BUILD_NUMBER% ^
+            -p 8092:80 ^
+            -v "%cd%\\nginx\\nginx-secure.conf:/etc/nginx/nginx.conf:ro" ^
+            %EDGE_IMAGE%
+
+          rem === Health wait: poll edge http://localhost:8092/health (max ~20s) ===
+          powershell -NoProfile -Command ^
+            "$u='http://localhost:8092/health';" ^
+            "$deadline=(Get-Date).AddSeconds(20);" ^
+            "while((Get-Date) -lt $deadline){" ^
+            "  try { $r = iwr -UseBasicParsing $u -TimeoutSec 2; if($r.StatusCode -eq 200){ exit 0 } } catch {}" ^
+            "  Start-Sleep -Milliseconds 500" ^
+            "};" ^
+            "Write-Host 'Edge did not become healthy in time.'; exit 1"
+        """
+      }
+    }
+
+    stage('ZAP Baseline Scan (secure via edge)') {
       steps {
         bat '''
           set "PATH=%PATH%;C:\\Program Files\\Docker\\Docker\\resources\\bin"
 
           docker pull %ZAP_IMAGE%
 
-          del /q %REPORTS%\\zap-baseline-secure.html 2>nul
-          del /q %REPORTS%\\zap-baseline-secure.json 2>nul
+          del /q %REPORTS%\\zap-baseline-secure-edge.html 2>nul
+          del /q %REPORTS%\\zap-baseline-secure-edge.json 2>nul
 
-          rem Run ZAP baseline
+          rem Run ZAP baseline against the EDGE at 8092
           docker run --rm -t ^
             -v "%cd%\\%REPORTS%:/zap/wrk" ^
             %ZAP_IMAGE% zap-baseline.py ^
-              -t http://host.docker.internal:%APP_HOST_PORT_SECURE% ^
-              -r zap-baseline-secure.html ^
-              -J zap-baseline-secure.json ^
+              -t http://host.docker.internal:8092 ^
+              -r zap-baseline-secure-edge.html ^
+              -J zap-baseline-secure-edge.json ^
               -m 5 ^
               -z "-config api.disablekey=true"
 
-          rem Capture exit code from the previous command
+          rem Capture exit code
           set ZAP_EXIT=%ERRORLEVEL%
-          echo %ZAP_EXIT% > %REPORTS%\\zap-exit-secure.txt
+          echo %ZAP_EXIT% > %REPORTS%\\zap-exit-secure-edge.txt
           echo ZAP exit code: %ZAP_EXIT%
 
-          rem Gate: fail only on internal error (>=3). For 0/1/2, succeed so we can upload reports.
+          rem Gate: fail only on internal error (>=3). For 0/1/2, continue to upload.
           if %ZAP_EXIT% GEQ 3 (
             exit /b %ZAP_EXIT%
           ) else (
             exit /b 0
           )
         '''
-        archiveArtifacts artifacts: 'reports/zap-baseline-secure.*', fingerprint: true
-        archiveArtifacts artifacts: 'reports/zap-exit-secure.txt', fingerprint: true
+        archiveArtifacts artifacts: 'reports/zap-baseline-secure-edge.*', fingerprint: true
+        archiveArtifacts artifacts: 'reports/zap-exit-secure-edge.txt', fingerprint: true
       }
     }
 
 
-    stage('Upload ZAP Reports to S3 (secure)') {
+    // stage('Upload ZAP Reports to S3 (secure)') {
+    //   steps {
+    //     withCredentials([usernamePassword(credentialsId: 'aws-reports-creds',
+    //                                       usernameVariable: 'AWS_ACCESS_KEY_ID',
+    //                                       passwordVariable: 'AWS_SECRET_ACCESS_KEY')]) {
+    //       bat """
+    //         set "PATH=%PATH%;C:\\Windows\\System32;C:\\Windows;C:\\Program Files\\Amazon\\AWSCLIV2\\"
+    //         set AWS_DEFAULT_REGION=%AWS_REGION%
+    //         for /f %%i in (bucket_name.txt) do @set BUCKET=%%i
+    //         if "%BUCKET%"=="" ( echo ERROR: bucket_name.txt missing or empty & exit /b 1 )
+    //         aws s3 cp %REPORTS%\\zap-baseline-secure.html s3://%BUCKET%/reports/%BUILD_NUMBER%/zap/secure/zap-baseline-secure.html --sse AES256
+    //         aws s3 cp %REPORTS%\\zap-baseline-secure.json s3://%BUCKET%/reports/%BUILD_NUMBER%/zap/secure/zap-baseline-secure.json --sse AES256
+    //         aws s3 ls s3://%BUCKET%/reports/%BUILD_NUMBER%/zap/secure/ || ver > nul
+    //       """
+    //     }
+    //   }
+    // }
+
+
+
+   stage('Upload ZAP Reports to S3 (secure via edge)') {
       steps {
         withCredentials([usernamePassword(credentialsId: 'aws-reports-creds',
                                           usernameVariable: 'AWS_ACCESS_KEY_ID',
@@ -410,11 +486,20 @@ pipeline {
             set AWS_DEFAULT_REGION=%AWS_REGION%
             for /f %%i in (bucket_name.txt) do @set BUCKET=%%i
             if "%BUCKET%"=="" ( echo ERROR: bucket_name.txt missing or empty & exit /b 1 )
-            aws s3 cp %REPORTS%\\zap-baseline-secure.html s3://%BUCKET%/reports/%BUILD_NUMBER%/zap/secure/zap-baseline-secure.html --sse AES256
-            aws s3 cp %REPORTS%\\zap-baseline-secure.json s3://%BUCKET%/reports/%BUILD_NUMBER%/zap/secure/zap-baseline-secure.json --sse AES256
-            aws s3 ls s3://%BUCKET%/reports/%BUILD_NUMBER%/zap/secure/ || ver > nul
+            aws s3 cp %REPORTS%\\zap-baseline-secure-edge.html s3://%BUCKET%/reports/%BUILD_NUMBER%/zap/secure-edge/zap-baseline-secure-edge.html --sse AES256
+            aws s3 cp %REPORTS%\\zap-baseline-secure-edge.json s3://%BUCKET%/reports/%BUILD_NUMBER%/zap/secure-edge/zap-baseline-secure-edge.json --sse AES256
+            aws s3 ls s3://%BUCKET%/reports/%BUILD_NUMBER%/zap/secure-edge/ || ver > nul
           """
         }
+      }
+    }
+
+    stage('Cleanup Edge (secure)') {
+      steps {
+        bat """
+          set "PATH=%PATH%;C:\\Program Files\\Docker\\Docker\\resources\\bin"
+          docker rm -f edge-secure-%BUILD_NUMBER% 1>nul 2>nul || ver > nul
+        """
       }
     }
 
@@ -439,6 +524,7 @@ pipeline {
         set "PATH=%PATH%;C:\\Program Files\\Docker\\Docker\\resources\\bin"
         docker rm -f demo-app-insecure-%BUILD_NUMBER% 1>nul 2>nul || ver > nul
         docker rm -f demo-app-secure-%BUILD_NUMBER%   1>nul 2>nul || ver > nul
+        docker rm -f edge-secure-%BUILD_NUMBER%       1>nul 2>nul || ver > nul
 
       """
     }
