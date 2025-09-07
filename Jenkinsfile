@@ -58,8 +58,7 @@ pipeline {
     }
 
     stage('Terraform Apply (manual gate)') {
-      // if you want only on main, uncomment:
-      // when { branch 'main' }
+      when { branch 'main' }
       steps {
         input message: 'Apply Terraform changes to AWS?'
         withCredentials([usernamePassword(credentialsId: 'aws-reports-creds',
@@ -69,11 +68,11 @@ pipeline {
             set "PATH=%PATH%;C:\\Windows\\System32;C:\\Windows;C:\\Program Files\\Amazon\\AWSCLIV2\\;C:\\Program Files\\Terraform\\"
             cd %TF_DIR%
             set AWS_DEFAULT_REGION=%AWS_REGION%
-            if exist tfplan (
-              terraform apply -input=%TF_INPUT% -no-color -auto-approve tfplan
-            ) else (
-              terraform apply -input=%TF_INPUT% -no-color -auto-approve
+            if not exist tfplan (
+              echo ERROR: No saved plan found. Please run the Plan stage first.
+              exit /b 1
             )
+            terraform apply -input=%TF_INPUT% -no-color -auto-approve tfplan
             terraform output
           """
         }
@@ -104,7 +103,7 @@ pipeline {
           trivy --version
           
           rem Run Trivy config scan against the terraform/ directory.
-          rem --exit-code 0 so the build doesn't fail on findings (you can tighten later).
+          rem --exit-code 0 so the build doesn't fail on findings.
           trivy config terraform --severity HIGH,CRITICAL --format json --output reports\\iac-trivy.json --exit-code 0
         """
         archiveArtifacts artifacts: 'reports/iac-trivy.json', fingerprint: true
@@ -190,9 +189,6 @@ pipeline {
 
           rem Start container with host 8081 -> container 8080
           docker run -d --name %CONTAINER% -p %PORT%:8080 %IMAGE_NAME%:insecure-%IMAGE_TAG%
-
-          rem Persist port for later stages
-          echo %PORT%> app_port.txt
 
           rem === Quick health wait: poll docker health (max ~20s) ===
           powershell -NoProfile -Command ^
@@ -331,9 +327,6 @@ pipeline {
 
           rem Start container with host 8081 -> container 8080
           docker run -d --name %CONTAINER% -p %PORT%:8080 %IMAGE_NAME%:secure-%IMAGE_TAG%
-
-          rem Persist port for later stages
-          echo %PORT%> app_port.txt
 
           rem === Quick health wait: poll docker health (max ~20s) ===
           powershell -NoProfile -Command ^

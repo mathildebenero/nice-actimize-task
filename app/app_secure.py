@@ -4,7 +4,7 @@ from markupsafe import escape
 app = Flask(__name__)
 
 # A tight, but realistic CSP for this tiny app.
-# No inline scripts, no external JS. Update if you add assets.
+# No inline scripts, no external JS.
 CSP = (
     "default-src 'self'; "
     "script-src 'self'; "
@@ -38,14 +38,13 @@ def add_security_headers(resp):
     resp.headers["Cross-Origin-Embedder-Policy"] = COEP
 
     # Hide server details (ZAP: server version leak)
-    # Many servers add this; setting to a generic value is fine for the assignment.
     resp.headers["Server"] = "secure"
 
     # Dynamic pages: avoid caching (ZAP informational)
     resp.headers["Cache-Control"] = "no-store"
     resp.headers["Pragma"] = "no-cache"
 
-    # If you terminate TLS in front, enable HSTS there (not useful over plain HTTP):
+    # for future imorivement (HTTPs)
     # resp.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains; preload"
     return resp
 
